@@ -20,7 +20,7 @@ if (!HF_TOKEN) {
 
 const hf = new HfInference(HF_TOKEN);
 
-const MODEL = "dphn/dolphin-2.9-llama3-8b";
+const MODEL = "huihui-ai/Huihui-Qwen3-Next-80B-A3B-Thinking-abliterated";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
@@ -87,8 +87,9 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
   const isMentioned = client.user && message.mentions.has(client.user);
   const isDM = !message.guild;
+  const isPrefixed = message.content.startsWith("!");
 
-  if (!isMentioned && !isDM) return;
+  if (!isMentioned && !isDM && !isPrefixed) return;
 
   if (processedMessages.has(message.id)) return;
   processedMessages.add(message.id);
@@ -96,7 +97,9 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
   let userMessage = message.content;
 
-  if (client.user) {
+  if (isPrefixed) {
+    userMessage = userMessage.slice(1).trim();
+  } else if (client.user) {
     userMessage = userMessage
       .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
       .trim();
@@ -104,7 +107,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
   if (!userMessage) {
     await message.reply(
-      "Hey! I'm your AI assistant powered by Hugging Face. Mention me with a question and I'll respond!",
+      "Hey! I'm your AI assistant. Ask me anything using ! before your message!",
     );
     return;
   }
