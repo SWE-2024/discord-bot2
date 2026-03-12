@@ -5,22 +5,22 @@ import {
   Message,
   Partials,
 } from "discord.js";
-import { HfInference } from "@huggingface/inference";
+import Replicate from "replicate";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const HF_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
 if (!DISCORD_TOKEN) {
   throw new Error("DISCORD_TOKEN environment variable is required.");
 }
 
-if (!HF_TOKEN) {
-  throw new Error("HUGGINGFACE_API_TOKEN environment variable is required.");
+if (!REPLICATE_API_TOKEN) {
+  throw new Error("REPLICATE_API_TOKEN environment variable is required.");
 }
 
-const hf = new HfInference(HF_TOKEN);
+const replicate = new Replicate({ auth: REPLICATE_API_TOKEN });
 
-const MODEL = "Orenguteng/Llama-3.1-8B-Lexi-Uncensored-V2";
+const MODEL = "xai/grok-4";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
@@ -28,19 +28,14 @@ const SYSTEM_PROMPT =
 async function generateReply(userMessage: string): Promise<string> {
   try {
     let reply = "";
-    const stream = hf.chatCompletionStream({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      max_tokens: 512,
-      temperature: 0.7,
-    });
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) reply += delta;
+    for await (const event of replicate.stream(MODEL, {
+      input: {
+        prompt: userMessage,
+        system_prompt: SYSTEM_PROMPT,
+      },
+    })) {
+      reply += `${event}`;
     }
 
     reply = reply.trim();
@@ -55,11 +50,7 @@ async function generateReply(userMessage: string): Promise<string> {
 
     return reply;
   } catch (error: unknown) {
-    console.error("Error calling Hugging Face API:", error);
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes("loading")) {
-      return "The AI model is still loading, please try again in a moment!";
-    }
+    console.error("Error calling Replicate API:", error);
     return "Sorry, I ran into an error generating a response. Please try again later.";
   }
 }
@@ -78,8 +69,8 @@ const client = new Client({
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Discord bot logged in as: ${readyClient.user.tag}`);
-  console.log(`Using Hugging Face model: ${MODEL}`);
-  console.log("Bot is ready! Mention the bot or DM it to get a response.");
+  console.log(`Using Replicate model: ${MODEL}`);
+  console.log("Bot is ready! Use ! before your message or DM the bot.");
 });
 
 client.on(Events.MessageCreate, async (message: Message) => {
@@ -136,9 +127,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
     }
     console.error("Error handling message:", error);
     await message
-      .reply(
-        "Something went wrong while processing your request. Please try again!",
-      )
+      .reply("Something went wrong while processing your request. Please try again!")
       .catch(() => {});
   }
 });
@@ -161,16 +150,5 @@ process.on("SIGTERM", () => {
 
 client.login(DISCORD_TOKEN).catch((err) => {
   console.error("Failed to login to Discord:", err.message);
-  if (err.message.includes("disallowed intents")) {
-    console.error(
-      "\n⚠️  The MessageContent privileged intent is not enabled.\n" +
-        "To fix this:\n" +
-        "1. Go to https://discord.com/developers/applications\n" +
-        "2. Select your bot application\n" +
-        "3. Go to the Bot section\n" +
-        "4. Enable 'Message Content Intent' under Privileged Gateway Intents\n" +
-        "5. Save changes and restart the bot",
-    );
-  }
   process.exit(1);
 });
