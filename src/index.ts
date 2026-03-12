@@ -20,7 +20,7 @@ if (!HF_TOKEN) {
 
 const hf = new HfInference(HF_TOKEN);
 
-const MODEL = "Qwen/Qwen2.5-72B-Instruct";
+const MODEL = "mistralai/Mistral-Large-Instruct-2411";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
