@@ -20,7 +20,7 @@ if (!HF_TOKEN) {
 
 const hf = new HfInference(HF_TOKEN);
 
-const MODEL = "aoxo/sarvam-30b-uncensored";
+const MODEL = "Orion-zhen/Qwen2.5-7B-Instruct-Uncensored";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
