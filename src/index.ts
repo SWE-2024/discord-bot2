@@ -5,63 +5,52 @@ import {
   Message,
   Partials,
 } from "discord.js";
+import Replicate from "replicate";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
 if (!DISCORD_TOKEN) {
   throw new Error("DISCORD_TOKEN environment variable is required.");
 }
 
-if (!OLLAMA_BASE_URL) {
-  throw new Error("OLLAMA_BASE_URL environment variable is required.");
+if (!REPLICATE_API_TOKEN) {
+  throw new Error("REPLICATE_API_TOKEN environment variable is required.");
 }
 
-const MODEL = "huihui-ai/Huihui-Qwen3-Next-80B-A3B-Thinking-abliterated";
+const replicate = new Replicate({ auth: REPLICATE_API_TOKEN });
+
+const MODEL = "xai/grok-4";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
 
 async function generateReply(userMessage: string): Promise<string> {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-        stream: false,
-      }),
-    });
+    let reply = "";
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Ollama error ${response.status}: ${text}`);
+    for await (const event of replicate.stream(MODEL, {
+      input: {
+        prompt: userMessage,
+        system_prompt: SYSTEM_PROMPT,
+      },
+    })) {
+      reply += `${event}`;
     }
 
-    const data = (await response.json()) as {
-      message?: { content?: string };
-    };
-    const reply = data?.message?.content?.trim() ?? "";
+    reply = reply.trim();
 
     if (!reply) {
       return "Sorry, I couldn't generate a response. Please try again.";
     }
 
     if (reply.length > 1900) {
-      return reply.slice(0, 1900) + "...";
+      reply = reply.slice(0, 1900) + "...";
     }
 
     return reply;
   } catch (error: unknown) {
-    console.error("Error calling Ollama API:", error);
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
-      return "Could not reach the Ollama server. Make sure it's running and accessible.";
-    }
+    console.error("Error calling Replicate API:", error);
     return "Sorry, I ran into an error generating a response. Please try again later.";
   }
 }
@@ -80,8 +69,7 @@ const client = new Client({
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Discord bot logged in as: ${readyClient.user.tag}`);
-  console.log(`Using Ollama model: ${MODEL}`);
-  console.log(`Ollama endpoint: ${OLLAMA_BASE_URL}`);
+  console.log(`Using Replicate model: ${MODEL}`);
   console.log("Bot is ready! Use ! before your message or DM the bot.");
 });
 
@@ -134,7 +122,9 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await message.reply(reply);
     console.log(`[Bot replied to ${message.author.tag}]`);
   } catch (error) {
-    if (typingInterval) clearInterval(typingInterval);
+    if (typingInterval) {
+      clearInterval(typingInterval);
+    }
     console.error("Error handling message:", error);
     await message
       .reply("Something went wrong while processing your request. Please try again!")
