@@ -20,7 +20,7 @@ if (!HF_TOKEN) {
 
 const hf = new HfInference(HF_TOKEN);
 
-const MODEL = "deepseek-ai/DeepSeek-R1";
+const MODEL = "dphn/Dolphin-Mistral-24B-Venice-Edition";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
