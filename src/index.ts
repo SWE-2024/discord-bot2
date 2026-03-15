@@ -17,7 +17,7 @@ if (!GROQ_API_KEY) {
   throw new Error("GROQ_API_KEY environment variable is required.");
 }
 
-const MODEL = "qwen/qwen3-32b";
+const MODEL = "llama-3.3-70b-versatile";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SYSTEM_PROMPT =
@@ -51,7 +51,9 @@ async function generateReply(userMessage: string): Promise<string> {
       choices?: { message?: { content?: string } }[];
     };
 
-    const reply = data?.choices?.[0]?.message?.content?.trim() ?? "";
+    let reply = data?.choices?.[0]?.message?.content ?? "";
+
+    reply = reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
     if (!reply) {
       return "Sorry, I couldn't generate a response. Please try again.";
