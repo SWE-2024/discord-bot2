@@ -43,66 +43,54 @@ function addToHistory(channelId: string, role: "user" | "assistant", content: st
   }
 }
 
-async function streamReply(
-  channelId: string,
-  userMessage: string,
-  onChunk: (text: string) => void
-): Promise<string> {
-  const history = getHistory(channelId);
+async function generateReply(channelId: string, userMessage: string): Promise<string> {
+  try {
+    const history = getHistory(channelId);
 
-  const response = await fetch(GROQ_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...history,
-        { role: "user", content: userMessage },
-      ],
-      max_tokens: 1024,
-      temperature: 0.7,
-      stream: true,
-    }),
-  });
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...history,
+          { role: "user", content: userMessage },
+        ],
+        max_tokens: 1024,
+        temperature: 0.7,
+      }),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Groq API error ${response.status}: ${text}`);
-  }
-
-  let fullText = "";
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") break;
-      try {
-        const parsed = JSON.parse(data) as {
-          choices?: { delta?: { content?: string } }[];
-        };
-        const token = parsed.choices?.[0]?.delta?.content ?? "";
-        if (token) {
-          fullText += token;
-          onChunk(fullText);
-        }
-      } catch {}
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${text}`);
     }
-  }
 
-  fullText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  return fullText || "Sorry, I couldn't generate a response. Please try again.";
+    const data = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+
+    let reply = data?.choices?.[0]?.message?.content ?? "";
+
+    reply = reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
+    if (!reply) {
+      return "Sorry, I couldn't generate a response. Please try again.";
+    }
+
+    if (reply.length > 1900) {
+      return reply.slice(0, 1900) + "...";
+    }
+
+    return reply;
+  } catch (error: unknown) {
+    console.error("Error calling Groq API:", error);
+    return "Sorry, I ran into an error generating a response. Please try again later.";
+  }
 }
 
 const processedMessages = new Set<string>();
@@ -157,35 +145,25 @@ client.on(Events.MessageCreate, async (message: Message) => {
     `[${message.author.tag}] in [${message.guild?.name ?? "DM"}]: ${userMessage}`,
   );
 
+  let typingInterval: ReturnType<typeof setInterval> | null = null;
   try {
+    await message.channel.sendTyping();
+    typingInterval = setInterval(() => {
+      message.channel.sendTyping().catch(() => {});
+    }, 8000);
+
     const channelId = message.channel.id;
     addToHistory(channelId, "user", userMessage);
+    const reply = await generateReply(channelId, userMessage);
+    addToHistory(channelId, "assistant", reply);
 
-    const sentMessage = await message.reply("▍");
+    clearInterval(typingInterval);
+    typingInterval = null;
 
-    let lastEdit = Date.now();
-    let finalText = "";
-
-    await streamReply(channelId, userMessage, (currentText) => {
-      finalText = currentText;
-      const now = Date.now();
-      if (now - lastEdit >= 750) {
-        lastEdit = now;
-        const display = currentText.length > 1900
-          ? currentText.slice(0, 1900) + "..."
-          : currentText + " ▍";
-        sentMessage.edit(display).catch(() => {});
-      }
-    });
-
-    const finalDisplay = finalText.length > 1900
-      ? finalText.slice(0, 1900) + "..."
-      : finalText || "Sorry, I couldn't generate a response. Please try again.";
-
-    await sentMessage.edit(finalDisplay);
-    addToHistory(channelId, "assistant", finalDisplay);
+    await message.reply(reply);
     console.log(`[Bot replied to ${message.author.tag}]`);
   } catch (error) {
+    if (typingInterval) clearInterval(typingInterval);
     console.error("Error handling message:", error);
     await message
       .reply("Something went wrong while processing your request. Please try again!")
