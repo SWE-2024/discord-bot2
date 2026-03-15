@@ -23,8 +23,30 @@ const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
 
-async function generateReply(userMessage: string): Promise<string> {
+const MAX_HISTORY = 10;
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
+const conversationHistory = new Map<string, ChatMessage[]>();
+
+function getHistory(channelId: string): ChatMessage[] {
+  if (!conversationHistory.has(channelId)) {
+    conversationHistory.set(channelId, []);
+  }
+  return conversationHistory.get(channelId)!;
+}
+
+function addToHistory(channelId: string, role: "user" | "assistant", content: string) {
+  const history = getHistory(channelId);
+  history.push({ role, content });
+  if (history.length > MAX_HISTORY * 2) {
+    history.splice(0, 2);
+  }
+}
+
+async function generateReply(channelId: string, userMessage: string): Promise<string> {
   try {
+    const history = getHistory(channelId);
+
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
       headers: {
@@ -35,6 +57,7 @@ async function generateReply(userMessage: string): Promise<string> {
         model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          ...history,
           { role: "user", content: userMessage },
         ],
         max_tokens: 1024,
@@ -129,7 +152,10 @@ client.on(Events.MessageCreate, async (message: Message) => {
       message.channel.sendTyping().catch(() => {});
     }, 8000);
 
-    const reply = await generateReply(userMessage);
+    const channelId = message.channel.id;
+    addToHistory(channelId, "user", userMessage);
+    const reply = await generateReply(channelId, userMessage);
+    addToHistory(channelId, "assistant", reply);
 
     clearInterval(typingInterval);
     typingInterval = null;
