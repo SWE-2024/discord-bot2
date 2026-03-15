@@ -5,61 +5,67 @@ import {
   Message,
   Partials,
 } from "discord.js";
-import { HfInference } from "@huggingface/inference";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const HF_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 if (!DISCORD_TOKEN) {
   throw new Error("DISCORD_TOKEN environment variable is required.");
 }
 
-if (!HF_TOKEN) {
-  throw new Error("HUGGINGFACE_API_TOKEN environment variable is required.");
+if (!GROQ_API_KEY) {
+  throw new Error("GROQ_API_KEY environment variable is required.");
 }
 
-const hf = new HfInference(HF_TOKEN);
-
-const MODEL = "NousResearch/Nous-Hermes-2-Mistral-7B-DPO";
+const MODEL = "llama-3.3-70b-versatile";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly Discord bot assistant. Keep your answers concise and clear. If you are unsure about something, say so.";
 
 async function generateReply(userMessage: string): Promise<string> {
   try {
-    let reply = "";
-    const stream = hf.chatCompletionStream({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      max_tokens: 512,
-      temperature: 0.7,
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        max_tokens: 1024,
+        temperature: 0.7,
+      }),
     });
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) reply += delta;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${text}`);
     }
 
-    reply = reply.trim();
+    const data = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+
+    let reply = data?.choices?.[0]?.message?.content ?? "";
+
+    reply = reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
     if (!reply) {
       return "Sorry, I couldn't generate a response. Please try again.";
     }
 
     if (reply.length > 1900) {
-      reply = reply.slice(0, 1900) + "...";
+      return reply.slice(0, 1900) + "...";
     }
 
     return reply;
   } catch (error: unknown) {
-    console.error("Error calling Hugging Face API:", error);
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes("loading")) {
-      return "The AI model is still loading, please try again in a moment!";
-    }
+    console.error("Error calling Groq API:", error);
     return "Sorry, I ran into an error generating a response. Please try again later.";
   }
 }
@@ -78,8 +84,8 @@ const client = new Client({
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Discord bot logged in as: ${readyClient.user.tag}`);
-  console.log(`Using Hugging Face model: ${MODEL}`);
-  console.log("Bot is ready! Mention the bot or DM it to get a response.");
+  console.log(`Using Groq model: ${MODEL}`);
+  console.log("Bot is ready! Use ! before your message or DM the bot.");
 });
 
 client.on(Events.MessageCreate, async (message: Message) => {
@@ -131,14 +137,10 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await message.reply(reply);
     console.log(`[Bot replied to ${message.author.tag}]`);
   } catch (error) {
-    if (typingInterval) {
-      clearInterval(typingInterval);
-    }
+    if (typingInterval) clearInterval(typingInterval);
     console.error("Error handling message:", error);
     await message
-      .reply(
-        "Something went wrong while processing your request. Please try again!",
-      )
+      .reply("Something went wrong while processing your request. Please try again!")
       .catch(() => {});
   }
 });
@@ -161,16 +163,5 @@ process.on("SIGTERM", () => {
 
 client.login(DISCORD_TOKEN).catch((err) => {
   console.error("Failed to login to Discord:", err.message);
-  if (err.message.includes("disallowed intents")) {
-    console.error(
-      "\n⚠️  The MessageContent privileged intent is not enabled.\n" +
-        "To fix this:\n" +
-        "1. Go to https://discord.com/developers/applications\n" +
-        "2. Select your bot application\n" +
-        "3. Go to the Bot section\n" +
-        "4. Enable 'Message Content Intent' under Privileged Gateway Intents\n" +
-        "5. Save changes and restart the bot",
-    );
-  }
   process.exit(1);
 });
